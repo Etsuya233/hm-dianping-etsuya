@@ -25,16 +25,11 @@ public class UserInterceptor implements HandlerInterceptor {
 	@Override
 	public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
 		String token = request.getHeader("authorization");
-		if(StrUtil.isBlank(token)){
-			response.setStatus(HttpStatus.HTTP_UNAUTHORIZED);
-			return false;
-		}
 		String json = stringRedisTemplate.opsForValue().get(RedisConstants.LOGIN_USER_KEY + token);
-		UserDTO userDTO = objectMapper.readValue(json, UserDTO.class);
-		if(userDTO == null){
-			response.setStatus(HttpStatus.HTTP_UNAUTHORIZED);
-			return false;
+		if(json == null){
+			return true;
 		}
+		UserDTO userDTO = objectMapper.readValue(json, UserDTO.class);
 		//更新Token有效期
 		stringRedisTemplate.expire(RedisConstants.LOGIN_USER_KEY + token, Duration.ofMinutes(30));
 		UserHolder.saveUser(userDTO);

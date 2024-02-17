@@ -1,6 +1,7 @@
 package com.hmdp.config;
 
 import com.hmdp.interceptor.UserInterceptor;
+import com.hmdp.interceptor.UserInterceptor2;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
@@ -10,10 +11,12 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 @RequiredArgsConstructor
 public class MVCConfig implements WebMvcConfigurer {
 	private final UserInterceptor userInterceptor;
+	private final UserInterceptor2 userInterceptor2;
 
 	@Override
 	public void addInterceptors(InterceptorRegistry registry) {
-		registry.addInterceptor(userInterceptor)
+		registry.addInterceptor(userInterceptor).order(1);
+		registry.addInterceptor(userInterceptor2)
 				.excludePathPatterns(
 						"/user/code",
 						"/user/login",
@@ -22,6 +25,6 @@ public class MVCConfig implements WebMvcConfigurer {
 						"/shop-type/**",
 						"/upload/**",
 						"/voucher/**"
-				);
+				).order(2);
 	}
 }
