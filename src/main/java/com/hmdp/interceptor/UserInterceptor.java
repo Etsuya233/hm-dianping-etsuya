@@ -1,32 +1,42 @@
 package com.hmdp.interceptor;
 
+import cn.hutool.core.util.StrUtil;
 import cn.hutool.http.HttpStatus;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hmdp.dto.UserDTO;
-import com.hmdp.entity.User;
+import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.UserHolder;
-import org.springframework.beans.BeanUtils;
-import org.springframework.context.annotation.Bean;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.ModelAndView;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import javax.servlet.http.HttpSession;
+import java.time.Duration;
 
 @Component
+@RequiredArgsConstructor
 public class UserInterceptor implements HandlerInterceptor {
+	private final StringRedisTemplate stringRedisTemplate;
+	private final ObjectMapper objectMapper;
+
 	@Override
 	public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
-		HttpSession session = request.getSession();
-		User user = (User) session.getAttribute("user");
-		if(user == null){
+		String token = request.getHeader("authorization");
+		if(StrUtil.isBlank(token)){
 			response.setStatus(HttpStatus.HTTP_UNAUTHORIZED);
 			return false;
 		}
-		//为什么使用UserDTO？因为可以脱敏！User里面有密码属性。
-		UserDTO userDTO = new UserDTO();
-		BeanUtils.copyProperties(user, userDTO);
+		String json = stringRedisTemplate.opsForValue().get(RedisConstants.LOGIN_USER_KEY + token);
+		UserDTO userDTO = objectMapper.readValue(json, UserDTO.class);
+		if(userDTO == null){
+			response.setStatus(HttpStatus.HTTP_UNAUTHORIZED);
+			return false;
+		}
+		//更新Token有效期
+		stringRedisTemplate.expire(RedisConstants.LOGIN_USER_KEY + token, Duration.ofMinutes(30));
 		UserHolder.saveUser(userDTO);
 		return true;
 	}
