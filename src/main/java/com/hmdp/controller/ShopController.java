@@ -3,6 +3,7 @@ package com.hmdp.controller;
 
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.hmdp.dto.Result;
 import com.hmdp.entity.Shop;
 import com.hmdp.service.IShopService;
@@ -32,8 +33,8 @@ public class ShopController {
      * @return 商铺详情数据
      */
     @GetMapping("/{id}")
-    public Result queryShopById(@PathVariable("id") Long id) {
-        return Result.ok(shopService.getById(id));
+    public Result queryShopById(@PathVariable("id") Long id) throws JsonProcessingException {
+        return shopService.queryShopById(id);
     }
 
     /**
@@ -44,7 +45,7 @@ public class ShopController {
     @PostMapping
     public Result saveShop(@RequestBody Shop shop) {
         // 写入数据库
-        shopService.save(shop);
+        shopService.saveShop(shop);
         // 返回店铺id
         return Result.ok(shop.getId());
     }
@@ -57,7 +58,7 @@ public class ShopController {
     @PutMapping
     public Result updateShop(@RequestBody Shop shop) {
         // 写入数据库
-        shopService.updateById(shop);
+        shopService.updateShop(shop);
         return Result.ok();
     }
 
