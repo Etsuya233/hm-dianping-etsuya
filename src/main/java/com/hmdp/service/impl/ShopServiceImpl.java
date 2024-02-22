@@ -10,6 +10,7 @@ import com.hmdp.entity.Shop;
 import com.hmdp.mapper.ShopMapper;
 import com.hmdp.service.IShopService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.hmdp.utils.RedisCacheUtils;
 import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.RedisData;
 import lombok.RequiredArgsConstructor;
@@ -19,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -37,19 +39,28 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
 
 	private final StringRedisTemplate stringRedisTemplate;
 	private final ObjectMapper objectMapper;
+	private final RedisCacheUtils redisCacheUtils;
 
-	//互斥锁的实现
 	@Override
 	public Result queryShopById(Long id) throws JsonProcessingException {
+		Shop shop = redisCacheUtils.getWithPassThrough(
+				RedisConstants.CACHE_SHOP_KEY, id, Shop.class,
+				this::getById, RedisConstants.CACHE_SHOP_TTL, TimeUnit.MINUTES
+		);
+		if(shop == null) return Result.fail("店铺不存在！");
+		return Result.ok(shop);
+	}
+
+	//互斥锁的实现
+	public Result queryShopByIdWithLock(Long id) throws JsonProcessingException {
 		String json = stringRedisTemplate.opsForValue().get(RedisConstants.CACHE_SHOP_KEY + id);
 		Shop shop;
 		if(json == null){
 			try {
-				if(!tryLock(RedisConstants.LOCK_SHOP_KEY)){
+				if(!tryLock(RedisConstants.LOCK_SHOP_KEY + id)){
 					Thread.sleep(100);
-					return queryShopById(id);
+					return queryShopByIdWithLock(id);
 				}
-				Thread.sleep(300);
 				shop = getById(id);
 				if(shop == null){
 					//缓存穿透
@@ -60,7 +71,7 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
 			} catch (InterruptedException e) {
 				throw new RuntimeException(e);
 			} finally {
-				unlock(RedisConstants.LOCK_SHOP_KEY);
+				unlock(RedisConstants.LOCK_SHOP_KEY + id);
 			}
 			return Result.ok(shop);
 		}
@@ -74,29 +85,14 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
 
 	//逻辑过期的实现
 	public Result queryShopByIdWithLogicalExpire(Long id){
-		String json = stringRedisTemplate.opsForValue().get(RedisConstants.CACHE_SHOP_KEY + id);
-		if(StrUtil.isBlank(json)){
-			return Result.fail("店铺不存在。");
+		Shop shop = redisCacheUtils.getLogical(
+				RedisConstants.CACHE_SHOP_KEY, id, Shop.class,
+				this::getById, RedisConstants.LOCK_SHOP_KEY, RedisConstants.LOCK_SHOP_TTL, ChronoUnit.SECONDS
+		);
+		if(shop == null){
+			return Result.fail("商铺不存在！");
 		}
-		RedisData<Shop> data = JSONUtil.toBean(json, new TypeReference<RedisData<Shop>>() {
-		}, false);
-		//过期
-		if(data.getExpireTime().isBefore(LocalDateTime.now())){
-			if(tryLock(RedisConstants.LOCK_SHOP_KEY + id)){
-				//double check
-				RedisData<Shop> shopRedisData = JSONUtil.toBean(stringRedisTemplate.opsForValue().get(RedisConstants.CACHE_SHOP_KEY + id),
-						new TypeReference<RedisData<Shop>>() {
-						}, false);
-				if(shopRedisData.getExpireTime().isBefore(LocalDateTime.now())){
-					CACHE_REBUILD_EXECUTOR.submit(() -> {
-						System.out.println("重建缓存！");
-						addShop2RedisWithLogicalExpire(id);
-						unlock(RedisConstants.LOCK_SHOP_KEY + id);
-					});
-				}
-			}
-		}
-		return Result.ok(data.getData());
+		return Result.ok(shop);
 	}
 
 	@Override
