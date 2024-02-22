@@ -41,6 +41,6 @@ public class ShopTypeServiceImpl extends ServiceImpl<ShopTypeMapper, ShopType> i
 		List<ShopType> list = query().orderByAsc("sort").list();
 		if(list == null) return Result.fail("类型查询失败");
 		stringRedisTemplate.opsForValue().set(RedisConstants.CACHE_TYPE_KEY, JSONUtil.toJsonStr(list), RedisConstants.CACHE_TYPE_TTL, TimeUnit.MINUTES);
-		return null;
+		return Result.ok(list);
 	}
 }
