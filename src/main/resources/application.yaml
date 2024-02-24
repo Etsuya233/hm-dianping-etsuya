@@ -25,3 +25,8 @@ mybatis-plus:
 logging:
   level:
     com.hmdp: debug
+
+hm:
+  snowflake:
+    worker-id: 1
+    datacenter-id: 1
