@@ -68,8 +68,8 @@ public class SnowflakeIdWorker {
 	 * @param workerIdStr     工作ID (0~31)
 	 * @param datacenterIdStr 数据中心ID (0~31)
 	 */
-	public SnowflakeIdWorker(@Value("${hm.snowflake.worker-id}") String workerIdStr,
-							 @Value("${hm.snowflake.datacenter-id}") String datacenterIdStr) {
+	public SnowflakeIdWorker(@Value("${hm.server.worker-id}") String workerIdStr,
+							 @Value("${hm.server.datacenter-id}") String datacenterIdStr) {
 		long workerId = Long.parseLong(workerIdStr);
 		long datacenterId = Long.parseLong(datacenterIdStr);
 		if (workerId > maxWorkerId || workerId < 0) {

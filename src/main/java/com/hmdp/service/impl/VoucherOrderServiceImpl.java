@@ -7,6 +7,7 @@ import com.hmdp.mapper.VoucherOrderMapper;
 import com.hmdp.service.ISeckillVoucherService;
 import com.hmdp.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.hmdp.utils.RedisLockUtils;
 import com.hmdp.utils.SnowflakeIdWorker;
 import com.hmdp.utils.UserHolder;
 import org.springframework.aop.framework.AopContext;
@@ -28,10 +29,12 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
 	private final ISeckillVoucherService seckillVoucherService;
 	private final SnowflakeIdWorker snowflakeIdWorker;
+	private final RedisLockUtils redisLockUtils;
 
-	public VoucherOrderServiceImpl(ISeckillVoucherService seckillVoucherService, SnowflakeIdWorker snowflakeIdWorker) {
+	public VoucherOrderServiceImpl(ISeckillVoucherService seckillVoucherService, SnowflakeIdWorker snowflakeIdWorker, RedisLockUtils redisLockUtils) {
 		this.seckillVoucherService = seckillVoucherService;
 		this.snowflakeIdWorker = snowflakeIdWorker;
+		this.redisLockUtils = redisLockUtils;
 	}
 
 	@Override
@@ -43,11 +46,22 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 		if(seckillVoucher.getStock() <= 0){
 			return Result.fail("优惠券库存不足！");
 		}
+
 		//重点：
-		synchronized (UserHolder.getUser().getId().toString().intern()){ //调用intern方法获取字符串的规范形式
-			//获取Spring代理对象：因为直接调用的话是不管@Transactional的！
+//		synchronized (UserHolder.getUser().getId().toString().intern()){ //调用intern方法获取字符串的规范形式
+//			//获取Spring代理对象：因为直接调用的话是不管@Transactional的！
+//			IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
+//			return proxy.realGetSeckillVoucher(voucherId, seckillVoucher);
+//		}
+		boolean lockedFlag = redisLockUtils.tryLock("seckillVoucher:" + UserHolder.getUser().getId(), 5);
+		if(!lockedFlag){
+			return Result.fail("抢购失败！");
+		}
+		try {
 			IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
 			return proxy.realGetSeckillVoucher(voucherId, seckillVoucher);
+		} finally {
+			redisLockUtils.unlock("seckillVoucher:" + UserHolder.getUser().getId());
 		}
 	}
 
