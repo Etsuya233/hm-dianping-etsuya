@@ -19,5 +19,5 @@ public interface IVoucherOrderService extends IService<VoucherOrder> {
 
 	Result realGetSeckillVoucher(Long voucherId, SeckillVoucher seckillVoucher);
 
-	void handleSeckillVoucher(VoucherOrder voucherOrder) throws Exception;
+	void handleSeckillVoucher(VoucherOrder voucherOrder);
 }

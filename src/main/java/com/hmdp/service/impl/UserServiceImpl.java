@@ -1,5 +1,6 @@
 package com.hmdp.service.impl;
 
+import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.util.RandomUtil;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -16,6 +17,7 @@ import com.hmdp.utils.RegexUtils;
 import com.hmdp.utils.SystemConstants;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.aspectj.weaver.bcel.FakeAnnotation;
 import org.springframework.beans.BeanUtils;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -82,6 +84,13 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 		stringRedisTemplate.opsForValue().set(RedisConstants.LOGIN_USER_KEY + token, json, Duration.ofMinutes(30));
 		//返回Token给前端
 		return Result.ok(token);
+	}
+
+	@Override
+	public Result getUserById(Long id) {
+		User user = this.getById(id);
+		if(user == null) return Result.fail("用户不存在！");
+		return Result.ok(BeanUtil.copyProperties(user, UserDTO.class));
 	}
 
 	private User createUser(LoginFormDTO loginFormDTO) {

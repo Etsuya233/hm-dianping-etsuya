@@ -1,5 +1,6 @@
 local userId = ARGV[1]
 local voucherId = ARGV[2]
+local orderId = ARGV[3]
 
 -- 检查库存
 local stockKey = 'seckill:stock:' .. voucherId
@@ -18,5 +19,7 @@ end
 -- 保存数据
 redis.call('decr', stockKey)
 redis.call('sadd', setKey, userId)
+-- xadd stream.orders * k1 v1 k2 v2
+redis.call('xadd', 'stream.orders', '*', 'userId', userId, 'voucherId', voucherId, 'id', orderId)
 
 return 0
