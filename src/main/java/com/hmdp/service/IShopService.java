@@ -24,4 +24,6 @@ public interface IShopService extends IService<Shop> {
 	Result queryShopByIdWithLogicalExpire(Long id);
 
 	void addShop2RedisWithLogicalExpire(Long id);
+
+	Result queryShopByTypeAndLocation(Integer typeId, Integer current, Double x, Double y);
 }

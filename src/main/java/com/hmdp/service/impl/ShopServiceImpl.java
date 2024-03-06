@@ -3,6 +3,7 @@ package com.hmdp.service.impl;
 import cn.hutool.core.lang.TypeReference;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hmdp.dto.Result;
@@ -13,17 +14,28 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.RedisCacheUtils;
 import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.RedisData;
+import com.hmdp.utils.SystemConstants;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.geo.Distance;
+import org.springframework.data.geo.GeoResult;
+import org.springframework.data.geo.GeoResults;
+import org.springframework.data.geo.Metrics;
+import org.springframework.data.redis.connection.RedisGeoCommands;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.domain.geo.GeoLocation;
+import org.springframework.data.redis.domain.geo.GeoReference;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 /**
  * <p>
@@ -121,15 +133,43 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
 	//向Redis中添加店铺数据
 	@Override
 	public void addShop2RedisWithLogicalExpire(Long id){
-//		try {
-//			Thread.sleep(500);
-//		} catch (InterruptedException e) {
-//			throw new RuntimeException(e);
-//		}
 		Shop shop = getById(id);
 		RedisData<Shop> shopRedisData = new RedisData<>();
 		shopRedisData.setData(shop);
 		shopRedisData.setExpireTime(LocalDateTime.now().plusMinutes(RedisConstants.CACHE_SHOP_TTL));
 		stringRedisTemplate.opsForValue().set(RedisConstants.CACHE_SHOP_KEY + id, JSONUtil.toJsonStr(shopRedisData));
+	}
+
+	@Override
+	public Result queryShopByTypeAndLocation(Integer typeId, Integer current, Double x, Double y) {
+		if(x == null || y == null){
+			Page<Shop> page = lambdaQuery().eq(Shop::getTypeId, typeId).page(new Page<>(current, SystemConstants.DEFAULT_PAGE_SIZE));
+			return Result.ok(page);
+		}
+		//查询id
+		int from = (current - 1) * SystemConstants.DEFAULT_PAGE_SIZE, end = current * SystemConstants.DEFAULT_PAGE_SIZE;
+		GeoResults<RedisGeoCommands.GeoLocation<String>> searched = stringRedisTemplate.opsForGeo().search(
+				RedisConstants.SHOP_GEO_KEY + typeId,
+				new GeoReference.GeoCoordinateReference<>(x, y),
+				new Distance(5000),
+				RedisGeoCommands.GeoSearchCommandArgs.newGeoSearchArgs()
+						.includeDistance()
+						.limit(end));
+		if(searched == null) return Result.ok();
+		List<GeoResult<RedisGeoCommands.GeoLocation<String>>> content = searched.getContent();
+		//截取
+		List<GeoResult<RedisGeoCommands.GeoLocation<String>>> geoResults = content.subList(Math.min(from, content.size()), Math.min(end, content.size()));
+		//解析
+		if(geoResults.isEmpty()) return Result.ok();
+		List<String> shopIds = geoResults.stream().map(a -> a.getContent().getName()).collect(Collectors.toList());
+		String shopIdStr = StrUtil.join(", ", shopIds);
+		List<Shop> shops = lambdaQuery()
+				.in(Shop::getId, shopIds)
+				.last("ORDER BY FIELD(id, " + shopIdStr + ")")
+				.list();
+		for(int i = 0; i < shops.size(); i++){
+			shops.get(i).setDistance(geoResults.get(i).getDistance().getValue());
+		}
+		return Result.ok(shops);
 	}
 }

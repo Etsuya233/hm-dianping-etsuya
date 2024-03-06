@@ -3,13 +3,16 @@ package com.hmdp.service.impl;
 import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.dto.Result;
+import com.hmdp.dto.ScrollResult;
 import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.Blog;
+import com.hmdp.entity.Follow;
 import com.hmdp.entity.User;
 import com.hmdp.mapper.BlogMapper;
 import com.hmdp.mapper.UserMapper;
 import com.hmdp.service.IBlogService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.hmdp.service.IFollowService;
 import com.hmdp.service.IUserService;
 import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.SystemConstants;
@@ -18,8 +21,10 @@ import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.boot.autoconfigure.cache.CacheProperties;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -38,12 +43,14 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
 	private final StringRedisTemplate stringRedisTemplate;
 	private final IUserService userService;
 	private final UserMapper userMapper;
+	private final IFollowService followService;
 	private final RedissonClient redissonClient;
 
-	public BlogServiceImpl(StringRedisTemplate stringRedisTemplate, IUserService userService, UserMapper userMapper, RedissonClient redissonClient) {
+	public BlogServiceImpl(StringRedisTemplate stringRedisTemplate, IUserService userService, UserMapper userMapper, IFollowService followService, RedissonClient redissonClient) {
 		this.stringRedisTemplate = stringRedisTemplate;
 		this.userService = userService;
 		this.userMapper = userMapper;
+		this.followService = followService;
 		this.redissonClient = redissonClient;
 	}
 
@@ -119,6 +126,66 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
 				user -> BeanUtil.copyProperties(user, UserDTO.class))
 				.collect(Collectors.toList());
 		return Result.ok(userDTOS);
+	}
+
+	@Override
+	public Result saveBlog(Blog blog) {
+		// 获取登录用户
+		UserDTO user = UserHolder.getUser();
+		blog.setUserId(user.getId());
+		// 保存探店博文
+		boolean saved = this.save(blog);
+		if(!saved) return Result.fail("添加博客失败！");
+		// 推送至粉丝收件箱
+		List<Follow> followers = followService.lambdaQuery()
+				.eq(Follow::getFollowUserId, user.getId())
+				.list();
+		followers.forEach(a -> {
+			stringRedisTemplate.opsForZSet().add(
+					RedisConstants.FEED_KEY + a.getUserId(),
+					blog.getId().toString(), System.currentTimeMillis());
+		});
+		// 返回id
+		return Result.ok(blog.getId());
+	}
+
+	@Override
+	public Result followingFeed(Long minTime, Integer offset) {
+		UserDTO user = UserHolder.getUser();
+		if(minTime == null) minTime = System.currentTimeMillis();
+		Set<ZSetOperations.TypedTuple<String>> blogIdsWithScore = stringRedisTemplate.opsForZSet().reverseRangeByScoreWithScores(
+				RedisConstants.FEED_KEY + user.getId(),
+				0, minTime,
+				offset, 5
+		);
+		if(blogIdsWithScore == null) return Result.ok();
+		//计算offset和minTime
+		List<Long> blogIds = new ArrayList<>(blogIdsWithScore.size());
+		Long nowMinTime = minTime;
+		Integer nowOffset = 0;
+		for (ZSetOperations.TypedTuple<String> tuple : blogIdsWithScore) {
+			blogIds.add(Long.valueOf(tuple.getValue()));
+			Long time = tuple.getScore().longValue();
+			if(time.equals(nowMinTime)) nowOffset++;
+			else {
+				nowMinTime = time;
+				nowOffset = 1;
+			}
+		}
+		//查询博客
+		List<Blog> blogs = this.lambdaQuery().in(Blog::getId, blogIds).list();
+		blogs.forEach(blog -> { //其实这里还需要优化啦，因为每次都是单独查询数据库
+			User user1 = userService.getById(blog.getUserId());
+			blog.setIcon(user1.getIcon());
+			blog.setIsLike(userLikedFlag(user.getId(), blog.getId()));
+			blog.setName(user1.getNickName());
+		});
+		//结果
+		ScrollResult scrollResult = new ScrollResult();
+		scrollResult.setList(blogs);
+		scrollResult.setOffset(nowOffset);
+		scrollResult.setMinTime(nowMinTime);
+		return Result.ok(scrollResult);
 	}
 
 	private boolean userLikedFlag(Long userId, Long id){
