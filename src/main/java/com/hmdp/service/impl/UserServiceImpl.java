@@ -15,15 +15,19 @@ import com.hmdp.service.IUserService;
 import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.RegexUtils;
 import com.hmdp.utils.SystemConstants;
+import com.hmdp.utils.UserHolder;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.weaver.bcel.FakeAnnotation;
 import org.springframework.beans.BeanUtils;
+import org.springframework.data.redis.connection.BitFieldSubCommands;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import javax.servlet.http.HttpSession;
 import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -91,6 +95,42 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 		User user = this.getById(id);
 		if(user == null) return Result.fail("用户不存在！");
 		return Result.ok(BeanUtil.copyProperties(user, UserDTO.class));
+	}
+
+	@Override
+	public Result sign() {
+		Long userId = UserHolder.getUser().getId();
+		LocalDateTime now = LocalDateTime.now();
+		String key = RedisConstants.USER_SIGN_KEY + userId + ":" + now.getYear() + ":" + now.getMonthValue();
+		Boolean saved = stringRedisTemplate.opsForValue()
+				.setBit(key, now.getDayOfMonth(), true);
+		if(saved == null || saved) return Result.fail("用户签到失败！");
+		return Result.ok();
+	}
+
+	@Override
+	public Result getConsecutiveSignCount() {
+		Long userId = UserHolder.getUser().getId();
+		LocalDateTime now = LocalDateTime.now();
+		String key = RedisConstants.USER_SIGN_KEY + userId + ":" + now.getYear() + ":" + now.getMonthValue();
+		//获取签到bitmap对应的十进制数
+		List<Long> res = stringRedisTemplate.opsForValue()
+				.bitField(key, BitFieldSubCommands.create(
+						BitFieldSubCommands.BitFieldGet.create(
+								BitFieldSubCommands.BitFieldType.unsigned(now.getDayOfMonth() + 1),
+								BitFieldSubCommands.Offset.offset(0))
+				));
+		if(res == null || res.isEmpty()) return Result.ok(0);
+		//计算连续签到的日子
+		Long binRes = res.get(0);
+		if(binRes == null || binRes == 0) return Result.ok(0);
+		int ret = 0;
+		while(binRes > 0){
+			if((binRes & 1L) == 1) ret++;
+			else break;
+			binRes /= 2;
+		}
+		return Result.ok(ret);
 	}
 
 	private User createUser(LoginFormDTO loginFormDTO) {
