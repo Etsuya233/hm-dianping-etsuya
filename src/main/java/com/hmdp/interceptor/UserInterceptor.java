@@ -15,6 +15,8 @@ import org.springframework.web.servlet.ModelAndView;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 
 @Component
 @RequiredArgsConstructor
@@ -33,6 +35,10 @@ public class UserInterceptor implements HandlerInterceptor {
 		//更新Token有效期
 		stringRedisTemplate.expire(RedisConstants.LOGIN_USER_KEY + token, Duration.ofMinutes(30));
 		UserHolder.saveUser(userDTO);
+		//计算UV
+		LocalDateTime now = LocalDateTime.now();
+		String date = now.format(DateTimeFormatter.ISO_DATE);
+		stringRedisTemplate.opsForHyperLogLog().add(RedisConstants.UV_KEY + date, userDTO.getId().toString());
 		return true;
 	}
 
